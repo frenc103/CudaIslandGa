@@ -4,6 +4,8 @@
 #include <math.h>
 #include <limits.h>
 #include <string.h>
+#include <curand.h>
+#include <curand_kernel.h>
 
 #define N_MESSAGES 200
 #define CROSS_RATE 1.0
