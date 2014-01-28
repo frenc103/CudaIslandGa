@@ -19,6 +19,8 @@
 #define EVAL_MAX 10
 #define EVAL_INC 0.1
 #define N_EVALS_MAX 400
+#define NBLOCKS 8
+#define NTHREADS 1
 
 double correctTotal[N_EVALS_MAX];
 double eval_x[N_EVALS_MAX][N_COEFFICIENTS_MAX];
@@ -211,6 +213,14 @@ __global__ void kernel(int *numBlocks, int **messages)
   int neighborID1,neighborID2 = ;
 }
 
+__global__ void setup_rng(curandState *state)
+{
+    int id = threadIdx.x + blockIdx.x * NTHREADS;
+    /* Each thread gets same seed, a different sequence 
+       number, no offset */
+    curand_init(1234, id, 0, &state[id]);
+}
+
 int main(int argc, char *argv[])
 {
   FILE *file; 
@@ -221,14 +231,37 @@ int main(int argc, char *argv[])
   unsigned int initTime = time(NULL);
   unsigned int *seed=&initTime;
   double functionCoefs[N_COEFFICIENTS_MAX];
+  
+  // create curand states, allocate memory on device, and initialize rng on device.
+  curandState *devStates;
+  cudaMalloc((void**)&devStates, NBLOCKS * NTHREADS * sizeof(curandState));
+  setup_rng<<<NBLOCKS, NTHREADS>>>(d_nthreads, devStates);
+
+  // create strategies, allocate mem on device, and copy to device.
+  for(i=0;i<N_MESSAGES;i++)
+  {
+    for(j=0;j<N_COEFFICIENTS;j++)
+    {
+      messages[i][j]=rand_r(seed)*2;
+    }
+    fitnesses[i]=fitness(messages[i]);
+  }
+
+  int size = N_COEFFICIENTS_MAX * sizeof(int);
+  cudaMalloc((void**)&d_messages, N_MESSAGES * sizeof(int*));
+  for(i=0;i<N_MESSAGES;i++)
+    cudaMalloc(&messages[i], size);
+  cudaMemcpy2D(&d_messages, size, &messages, size, size, size);
+
+
 
   file = fopen("fitness.txt","a+");
 
-  d_messages = cudaMalloc( (void ***) &d_messages, N_MESSAGES * sizeof(unsiged int *));
+  cudaMalloc( (void **) &d_messages, N_MESSAGES * N_COEFFICIENTS_MAX * sizeof(unsiged int *));
 
 
   /* copy messages to the device */
   cudaMemcpy(d_messages, messages, size, cudaMemcpyHostToDevice);
 
-  kernel<<<NumBlocks,1>>>(d_numBlocks, d_messages);
+  kernel<<<NBLOCKS,NTHREADS>>>(d_numBlocks, d_messages);
 }
