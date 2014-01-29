@@ -47,9 +47,9 @@ __device__ unsigned int grayToBinary(unsigned int num)
   First converts the integer to the integer equivalent in gray coding.
   It is then normalized between MIN_VALUE and MAX_VALUE
 */
-__device__ float coefToDouble(unsigned int n)
+__device__ double coefToDouble(unsigned int n)
 {
-  return (float)grayToBinary(n)/UINT_MAX * (MAX_VALUE-MIN_VALUE)+MIN_VALUE;
+  return (double)grayToBinary(n)/UINT_MAX * (MAX_VALUE-MIN_VALUE)+MIN_VALUE;
 }
 
 
@@ -57,11 +57,11 @@ __device__ float coefToDouble(unsigned int n)
   Takes as input all the messages and fitnesses.
   Runs a tournament selection algorithm to determine next generation
 */
-__device__ void reproduction(unsigned int messages[N_MESSAGES][N_COEFFICIENTS_MAX], float fitnesses[], unsigned int *seed)
+__device__ void reproduction(unsigned int messages[N_MESSAGES][N_COEFFICIENTS_MAX], double fitnesses[], unsigned int *seed)
 {
   int i,j,r1,r2;
   unsigned int newMessages[N_MESSAGES][N_COEFFICIENTS];
-  float newFitnesses[N_MESSAGES];
+  double newFitnesses[N_MESSAGES];
 
   for(i=0;i<N_MESSAGES;i++)
     {
@@ -139,12 +139,12 @@ __device__  unsigned int mutation(unsigned int *coefficient, unsigned int *seed)
 /*
   Calculates the fitness of the message.
  */
-__device__ float fitness(unsigned int message[])
+__device__ double fitness(unsigned int message[])
 {
   int i,n;
-  float coefs[N_COEFFICIENTS_MAX];
-  float sqrError=0.0;
-  float total;
+  double coefs[N_COEFFICIENTS_MAX];
+  double sqrError=0.0;
+  double total;
 
   for(n=0;n<N_COEFFICIENTS;n++)
     {
@@ -169,11 +169,11 @@ __device__ float fitness(unsigned int message[])
   If a parent's child is superior, the parent is replaced. 
  */
 __device__ void cme(unsigned int message1[], unsigned int message2[], 
-	 float *fitness1, float *fitness2, unsigned int *seed)
+	 double *fitness1, double *fitness2, unsigned int *seed)
 {
   unsigned int child1[N_COEFFICIENTS_MAX];
   unsigned int child2[N_COEFFICIENTS_MAX];
-  float fitnessC1,fitnessC2;
+  double fitnessC1,fitnessC2;
   int i;
  
   crossover(message1,message2,child1,child2,seed);
@@ -226,12 +226,11 @@ int main(int argc, char *argv[])
   FILE *file; 
   unsigned int messages[N_MESSAGES][N_COEFFICIENTS_MAX];
   unsigned int **d_messages;
-  float fitnesses[N_MESSAGES];
-  float *d_fitnesses;
+  double fitnesses[N_MESSAGES];
   int n,i,j;
   unsigned int initTime = time(NULL);
   unsigned int *seed=&initTime;
-  float functionCoefs[N_COEFFICIENTS_MAX];
+  double functionCoefs[N_COEFFICIENTS_MAX];
   
   // create curand states, allocate memory on device, and initialize rng on device.
   curandState *devStates;
@@ -241,25 +240,28 @@ int main(int argc, char *argv[])
   // create strategies, allocate mem on device, and copy to device.
   for(i=0;i<N_MESSAGES;i++)
   {
-    for(j=0;j<N_COEFFICIENTS_MAX;j++)
+    for(j=0;j<N_COEFFICIENTS;j++)
     {
       messages[i][j]=rand_r(seed)*2;
     }
     fitnesses[i]=fitness(messages[i]);
   }
 
-  size_t pitch;
-  cudaMallocPitch((void**)&d_messages, &pitch, N_COEFFICIENTS_MAX * sizeof(int), N_MESSAGES);
-  cudaMemcpy2D(&d_messages, pitch, &messages, N_COEFFICIENTS_MAX * sizeof(int), N_COEFFICIENTS_MAX * sizeof(int), N_MESSAGES, cudaMemcpyHostToDevice);
+  int size = N_COEFFICIENTS_MAX * sizeof(int);
+  cudaMalloc((void**)&d_messages, N_MESSAGES * sizeof(int*));
+  for(i=0;i<N_MESSAGES;i++)
+    cudaMalloc(&messages[i], size);
+  cudaMemcpy2D(&d_messages, size, &messages, size, size, size);
 
-  // allocate memory on device for fitness array
-  cudaMalloc((void**)&d_fintesses, N_MESSAGES * sizeof(float));
-
-
-  kernel<<<NBLOCKS,NTHREADS>>>(d_messages);
 
 
   file = fopen("fitness.txt","a+");
 
-  cudaFree(d_messages);
+  cudaMalloc( (void **) &d_messages, N_MESSAGES * N_COEFFICIENTS_MAX * sizeof(unsiged int *));
+
+
+  /* copy messages to the device */
+  cudaMemcpy(d_messages, messages, size, cudaMemcpyHostToDevice);
+
+  kernel<<<NBLOCKS,NTHREADS>>>(d_numBlocks, d_messages);
 }
